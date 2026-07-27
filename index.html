@@ -148,6 +148,12 @@
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        <!-- Yıldızlı / Favori Filtresi -->
+                        <select id="star-filter" onchange="renderApp()" class="px-3 py-1.5 text-xs bg-amber-50 border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-amber-900">
+                            <option value="all">Tüm Hastalar</option>
+                            <option value="starred">⭐ Yıldızlı Hastalar (VIP)</option>
+                        </select>
+
                         <!-- Tedavi Türüne Göre Filtreleme -->
                         <select id="treatment-filter" onchange="renderApp()" class="px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700">
                             <option value="all">Tüm Tedavi Türleri</option>
@@ -177,7 +183,7 @@
                             </button>
                         </div>
 
-                        <div class="relative flex-1 sm:w-36">
+                        <div class="relative flex-1 sm:w-32">
                             <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
                             <input type="text" id="search-input" oninput="renderApp()" placeholder="Hasta ara..." class="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         </div>
@@ -244,6 +250,15 @@
         let db, patientsCol, patientsData = [];
         let currentView = 'card';
 
+        // Kelimelerin ilk harflerini büyük yapan yardımcı fonksiyon
+        function capitalizeWords(str) {
+            if (!str) return '';
+            return str.trim().split(/\s+/).map(word => {
+                if (word.length === 0) return '';
+                return word.toLocaleUpperCase('tr-TR').charAt(0) + word.toLocaleLowerCase('tr-TR').slice(1);
+            }).join(' ');
+        }
+
         window.addEventListener('firebase-ready', async () => {
             const { initializeApp, getAuth, signInAnonymously, getFirestore, collection, onSnapshot } = window.firebaseModules;
             const app = initializeApp(JSON.parse(window.__firebase_config));
@@ -309,9 +324,17 @@
             window.open(url, '_blank');
         }
 
+        async function toggleStar(id) {
+            const p = patientsData.find(x => x.id === id);
+            if(!p) return;
+            p.starred = !p.starred;
+            const { updateDoc, doc } = window.firebaseModules;
+            await updateDoc(doc(db, 'patients', id), { starred: p.starred });
+        }
+
         document.getElementById('patient-form').onsubmit = async (e) => {
             e.preventDefault();
-            const rawName = document.getElementById('patient-name').value.trim();
+            const rawName = capitalizeWords(document.getElementById('patient-name').value);
 
             const exists = patientsData.some(p => p.name.trim().toLocaleLowerCase('tr-TR') === rawName.toLocaleLowerCase('tr-TR'));
             if (exists) {
@@ -340,6 +363,7 @@
                 treatment: document.getElementById('treatment-type').value,
                 tooth: document.getElementById('tooth-number').value,
                 date: rawDate,
+                starred: false,
                 checks: {
                     month3: { date: formatDate(baseDate3), completed: false },
                     month6: { date: formatDate(baseDate6), completed: false },
@@ -386,6 +410,7 @@
         async function saveEditedPatient(e) {
             e.preventDefault();
             const id = document.getElementById('edit-id').value;
+            const rawName = capitalizeWords(document.getElementById('edit-name').value);
             const rawDate = document.getElementById('edit-date').value;
             const [year, month, day] = rawDate.split('-').map(Number);
             
@@ -410,7 +435,7 @@
 
             const { updateDoc, doc } = window.firebaseModules;
             await updateDoc(doc(db, 'patients', id), {
-                name: document.getElementById('edit-name').value,
+                name: rawName,
                 phone: document.getElementById('edit-phone').value,
                 treatment: document.getElementById('edit-treatment').value,
                 tooth: document.getElementById('edit-tooth').value,
@@ -433,6 +458,7 @@
             document.getElementById('total-patient-count').innerText = `${patientsData.length} Hasta`;
 
             const searchTerm = (document.getElementById('search-input').value || '').toLocaleLowerCase('tr-TR');
+            const starFilter = document.getElementById('star-filter').value;
             const treatmentFilter = document.getElementById('treatment-filter').value;
             const sortType = document.getElementById('sort-select').value;
             const list = document.getElementById('patient-list');
@@ -444,12 +470,12 @@
                     p.phone.includes(searchTerm) ||
                     (p.treatment && p.treatment.toLocaleLowerCase('tr-TR').includes(searchTerm));
                 
+                const matchesStar = (starFilter === 'all') || (starFilter === 'starred' && p.starred);
                 const matchesTreatment = (treatmentFilter === 'all') || (p.treatment === treatmentFilter);
 
-                return matchesSearch && matchesTreatment;
+                return matchesSearch && matchesStar && matchesTreatment;
             });
 
-            // Sıralama Mantığı
             filtered.sort((a, b) => {
                 if (sortType === 'name-asc') {
                     return a.name.localeCompare(b.name, 'tr');
@@ -473,10 +499,13 @@
                         <div class="flex justify-between items-start mb-3">
                             <div>
                                 <div class="flex items-center gap-2">
+                                    <button onclick="toggleStar('${p.id}')" class="text-lg transition ${p.starred ? 'text-amber-400 hover:text-amber-500' : 'text-slate-300 hover:text-amber-400'}" title="Önemli / Favori Hasta">
+                                        <i class="${p.starred ? 'fa-solid' : 'fa-regular'} fa-star"></i>
+                                    </button>
                                     <h4 class="font-bold text-slate-900 text-sm">${p.name}</h4>
                                     <span class="bg-indigo-50 text-indigo-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-100">${p.treatment || 'Kanal Tedavisi'}</span>
                                 </div>
-                                <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
+                                <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1 ml-6">
                                     <span><i class="fa-solid fa-phone text-indigo-500 mr-1"></i> ${p.phone}</span>
                                     <span><i class="fa-solid fa-tooth text-indigo-500 mr-1"></i> Diş No: ${p.tooth}</span>
                                     <span><i class="fa-solid fa-calendar text-indigo-500 mr-1"></i> İşlem: ${formatDateTr(p.date)}</span>
@@ -506,6 +535,7 @@
                         <table class="w-full text-left border-collapse text-xs">
                             <thead>
                                 <tr class="bg-slate-100/70 text-slate-600 border-b border-slate-200">
+                                    <th class="p-3 w-8 text-center">⭐</th>
                                     <th class="p-3 font-semibold">Hasta Adı</th>
                                     <th class="p-3 font-semibold">Telefon</th>
                                     <th class="p-3 font-semibold">Tedavi Türü</th>
@@ -520,6 +550,11 @@
                             <tbody class="divide-y divide-slate-100">
                                 ${filtered.map(p => `
                                     <tr class="hover:bg-slate-50/80 transition">
+                                        <td class="p-3 text-center">
+                                            <button onclick="toggleStar('${p.id}')" class="${p.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'} transition">
+                                                <i class="${p.starred ? 'fa-solid' : 'fa-regular'} fa-star"></i>
+                                            </button>
+                                        </td>
                                         <td class="p-3 font-bold text-slate-900">${p.name}</td>
                                         <td class="p-3 text-slate-600">
                                             <div class="flex items-center gap-1.5">
